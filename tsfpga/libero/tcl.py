@@ -1,6 +1,6 @@
 from pathlib import Path
 from os.path import relpath
-from corel_tsfpga.tsfpga import libero
+from tsfpga import libero
 
 
 def to_tcl_path(path, project_folder, cygwin_root="C:\\cygwin64"):

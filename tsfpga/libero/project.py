@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from corel_tsfpga.tsfpga.system_utils import create_file
+from tsfpga.system_utils import create_file
 from .tcl import LiberoTcl
 
 

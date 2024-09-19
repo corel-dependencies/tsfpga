@@ -1,4 +1,4 @@
-# corel_tsfpga master tcl
+# tsfpga master tcl
 #
 # Adapted from PyFPGA Master Tcl by introducing the support for Microsemi Libero
 # v11.  Its TCL instructions subset is different from the one of the following
@@ -96,7 +96,7 @@ proc fpga_commands { PHASE } {
 
 proc fpga_print { MSG } {
     global TOOL
-    puts ">>> corel_tsfpga ($TOOL): $MSG"
+    puts ">>> tsfpga ($TOOL): $MSG"
 }
 
 proc fpga_create { PROJECT } {

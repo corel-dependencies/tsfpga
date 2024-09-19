@@ -233,7 +233,7 @@ class BaseModule:
         folders = [
             self.path / "ip_cores",
         ]
-        file_endings = "tcl"
+        file_endings = ("tcl", "vhd", "cxf")
         return [
             IpCoreFile(ip_core_file)
             for ip_core_file in self._get_file_list(

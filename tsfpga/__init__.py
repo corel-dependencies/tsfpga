@@ -12,7 +12,6 @@ A set of reusable functions for working with HDL projects.
 
 
 from pathlib import Path
-from hdl_modules import REPO_ROOT as HDL_MODULES_ROOT
 
 
 THIS_DIR = Path(__file__).parent
@@ -34,7 +33,7 @@ __version__ = "11.0.0+ultrasat.1.0.0"
 # Releases to PyPI are bundled with a release version of the hdl_modules
 # project (https://hdl-modules.com). These three definitions will be filled in that case.
 # This is a Path object pointing to the 'modules' folder where the hdl_modules can be found.
-HDL_MODULES_LOCATION = HDL_MODULES_ROOT / "hdl_modules/modules"
+HDL_MODULES_LOCATION = None
 # This is a string of the git tag the modules were fetched from
 HDL_MODULES_TAG = None
 # This is a string of the git sha the modules were fetched from

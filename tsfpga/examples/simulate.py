@@ -6,26 +6,17 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
-import argparse
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
-
-if TYPE_CHECKING:
-    # First party libraries
-    from tsfpga.module_list import ModuleList
 
 # Do PYTHONPATH insert() instead of append() to prefer any local repo checkout over any pip install.
 REPO_ROOT = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
-# Import before others since it modifies PYTHONPATH. pylint: disable=unused-import
-import tsfpga.examples.example_pythonpath  # noqa: F401
+# Import before others since it modifies PYTHONPATH.
+import tsfpga.examples.example_pythonpath
 
-# First party libraries
 import tsfpga
-import tsfpga.create_vhdl_ls_config
 from tsfpga.create_ghdl_ls_config import create_ghdl_ls_configuration
 from tsfpga.examples.example_env import (
     TSFPGA_EXAMPLES_TEMP_DIR,
@@ -33,11 +24,12 @@ from tsfpga.examples.example_env import (
     get_tsfpga_example_modules,
 )
 from tsfpga.examples.simulation_utils import (
+    NoVcsDiffTestsFound,
     SimulationProject,
     create_vhdl_ls_configuration,
+    find_git_test_filter,
     get_arguments_cli,
 )
-from tsfpga.git_simulation_subset import GitSimulationSubset
 
 
 def main() -> None:
@@ -50,115 +42,55 @@ def main() -> None:
     args = cli.parse_args()
 
     modules = get_tsfpga_example_modules()
-    modules_no_sim = get_hdl_modules()
+    modules_no_test = get_hdl_modules()
 
     if args.vcs_minimal:
-        if args.test_patterns != "*":
-            sys.exit(
-                "Can not specify a test pattern when using the --vcs-minimal flag."
-                f' Got "{args.test_patterns}"',
+        try:
+            args = find_git_test_filter(
+                args=args,
+                repo_root=tsfpga.REPO_ROOT,
+                modules=modules,
+                modules_no_test=modules_no_test,
             )
-
-        test_filters = find_git_test_filters(
-            args=args,
-            repo_root=tsfpga.REPO_ROOT,
-            modules=modules,
-            modules_no_sim=modules_no_sim,
-            reference_branch="origin/main",
-        )
-        if not test_filters:
+        except NoVcsDiffTestsFound:
             print("Nothing to run. Appears to be no VHDL-related git diff.")
             return
 
-        # Override the test pattern argument to VUnit.
-        args.test_patterns = test_filters
-        print(f"Running VUnit with test pattern {args.test_patterns}")
-
-        # Enable minimal compilation in VUnit
-        args.minimal = True
-
     simulation_project = SimulationProject(args=args)
-    simulation_project.add_modules(
-        args=args,
-        modules=modules,
-        modules_no_sim=modules_no_sim,
-        include_verilog_files=False,
-        include_systemverilog_files=False,
-    )
-    simlib = simulation_project.add_vivado_simlib()
     ip_core_vivado_project_directory = simulation_project.add_vivado_ip_cores(
-        modules=modules + modules_no_sim
+        modules=modules + modules_no_test
     )
-    # Synopsys is needed by unisim MMCME2_ADV primitive.
-    # Relaxed rules needed by unisim VITAL2000 package.
-    # Do not use in any new code.
-    simulation_project.vunit_proj.set_sim_option("ghdl.elab_flags", ["-frelaxed", "-fsynopsys"])
 
+    # Generate before modules are added to VUnit project, to avoid duplicate files.
     create_vhdl_ls_configuration(
         output_path=tsfpga.REPO_ROOT,
-        temp_files_path=TSFPGA_EXAMPLES_TEMP_DIR,
-        modules=modules + modules_no_sim,
+        modules=modules + modules_no_test,
+        vunit_proj=simulation_project.vunit_proj,
         ip_core_vivado_project_directory=ip_core_vivado_project_directory,
     )
 
+    simulation_project.add_modules(
+        args=args,
+        modules=modules,
+        modules_no_test=modules_no_test,
+        include_verilog_files=False,
+        include_systemverilog_files=False,
+    )
+
+    # Synopsys is needed by unisim MMCME2_ADV primitive.
+    # Relaxed rules needed by unisim VITAL2000 package.
+    # Do not use in any new code.
+    simlib = simulation_project.add_vivado_simlib()
+    simulation_project.vunit_proj.set_sim_option("ghdl.elab_flags", ["-fsynopsys", "-frelaxed"])
+
     create_ghdl_ls_configuration(
         output_path=tsfpga.REPO_ROOT,
-        modules=modules + modules_no_sim,
+        modules=modules + modules_no_test,
         vunit_proj=simulation_project.vunit_proj,
         simlib=simlib,
     )
 
     simulation_project.vunit_proj.main()
-
-
-def find_git_test_filters(
-    args: argparse.Namespace,
-    repo_root: Path,
-    modules: "ModuleList",
-    modules_no_sim: Optional["ModuleList"] = None,
-    reference_branch: str = "origin/master",
-    **setup_vunit_kwargs: Any,
-) -> list[str]:
-    """
-    Construct a VUnit test filter that will run all test cases that are affected by git changes.
-    The current git state is compared to a reference branch, and differences are derived.
-    See :class:`.GitSimulationSubset` for details.
-
-    Arguments:
-        args: Command line argument namespace.
-        repo_root: Path to the repository root. Git commands will be run here.
-        modules: Will be passed on to :meth:`.SimulationProject.add_modules`.
-        modules_no_sim: Will be passed on to :meth:`.SimulationProject.add_modules`.
-        reference_branch (str): The name of the reference branch that is used to collect a diff.
-        setup_vunit_kwargs : Will be passed on to :meth:`.SimulationProject.add_modules`.
-
-    Return:
-        A list of VUnit test case filters.
-    """
-    # Set up a dummy VUnit project that will be used for dependency scanning.
-    # Note that sources are added identical to the "real" project above.
-    simulation_project = SimulationProject(args=args)
-    simulation_project.add_modules(
-        args=args,
-        modules=modules,
-        modules_no_sim=modules_no_sim,
-        include_verilog_files=False,
-        include_systemverilog_files=False,
-        **setup_vunit_kwargs,
-    )
-
-    testbenches_to_run = GitSimulationSubset(
-        repo_root=repo_root,
-        reference_branch=reference_branch,
-        vunit_proj=simulation_project.vunit_proj,
-        modules=modules,
-    ).find_subset()
-
-    test_filters = []
-    for testbench_file_name, library_name in testbenches_to_run:
-        test_filters.append(f"{library_name}.{testbench_file_name}.*")
-
-    return test_filters
 
 
 if __name__ == "__main__":

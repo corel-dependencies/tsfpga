@@ -6,20 +6,18 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
 import subprocess
 from pathlib import Path
 
-# Third party libraries
 import pytest
 
-# First party libraries
 from tsfpga.system_utils import (
     create_directory,
     create_file,
     delete,
     file_is_in_directory,
     path_relative_to,
+    prepend_file,
     read_file,
     read_last_lines_of_file,
     run_command,
@@ -144,6 +142,21 @@ def test_read_last_lines_of_file_with_empty_file(tmp_path):
     assert read_last_lines_of_file(file, num_lines=10) == data
 
 
+def test_prepend_file(tmp_path):
+    assert (
+        read_file(
+            prepend_file(
+                file_path=create_file(tmp_path / "data.txt", contents="data"), text="hello\nmy_"
+            )
+        )
+        == "hello\nmy_data"
+    )
+
+
+def test_prepend_file_with_empty_file(tmp_path):
+    assert read_file(prepend_file(file_path=create_file(tmp_path / "data.txt"), text="a")) == "a"
+
+
 def test_run_command_called_with_nonexisting_binary_should_raise_exception():
     cmd = ["/apa/hest/zebra.exe", "foobar"]
     with pytest.raises(FileNotFoundError):
@@ -161,7 +174,7 @@ def test_run_command_called_with_non_list_should_raise_exception():
     run_command(cmd)
 
     cmd = "ls -la"
-    with pytest.raises(ValueError) as exception_info:
+    with pytest.raises(TypeError) as exception_info:
         run_command(cmd)
     assert str(exception_info.value).startswith("Must be called with a list")
 

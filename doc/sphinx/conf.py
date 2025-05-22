@@ -10,7 +10,6 @@
 Configuration file for the Sphinx documentation builder.
 """
 
-# Standard libraries
 import sys
 from pathlib import Path
 
@@ -18,10 +17,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
-# Import before others since it modifies PYTHONPATH. pylint: disable=unused-import
+# Import before others since it modifies PYTHONPATH.
 import tsfpga.examples.example_pythonpath  # noqa: F401
 
-# First party libraries
 from tsfpga.about import WEBSITE_URL
 
 project = "tsfpga"
@@ -34,6 +32,7 @@ extensions = [
     "sphinx_toolbox.collapse",
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
+    "sphinxcontrib.googleanalytics",
     "sphinxext.opengraph",
 ]
 
@@ -66,7 +65,6 @@ html_theme = "sphinx_rtd_theme"
 
 html_theme_options = {
     "prev_next_buttons_location": "both",
-    "analytics_id": "G-GN3TVQGSHC",
     "logo_only": True,
 }
 
@@ -74,6 +72,9 @@ html_theme_options = {
 html_static_path = ["opengraph"]
 
 html_logo = "tsfpga_sphinx.png"
+
+# Google Analytics settings.
+googleanalytics_id = "G-GN3TVQGSHC"
 
 # OpenGraph settings.
 ogp_site_url = WEBSITE_URL

@@ -6,25 +6,21 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
+from __future__ import annotations
+
 import hashlib
 import json
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-# First party libraries
 from tsfpga.system_utils import create_file, delete, read_file
 
-# Local folder libraries
 from .project import VivadoIpCoreProject
 
 if TYPE_CHECKING:
-    # First party libraries
+    from pathlib import Path
+
     from tsfpga.ip_core_file import IpCoreFile
     from tsfpga.module_list import ModuleList
-
-    # Local folder libraries
-    from .project import VivadoProject
 
 
 class VivadoIpCores:
@@ -37,10 +33,10 @@ class VivadoIpCores:
 
     def __init__(
         self,
-        modules: "ModuleList",
+        modules: ModuleList,
         output_path: Path,
         part_name: str,
-        vivado_project_class: Optional[type["VivadoProject"]] = None,
+        vivado_project_class: type[VivadoIpCoreProject] | None = None,
     ) -> None:
         """
         Arguments:
@@ -59,7 +55,7 @@ class VivadoIpCores:
 
         self._hash_file = self.project_directory / "ip_files_hash.txt"
 
-        self._setup(modules, vivado_project_class)
+        self._setup(modules=modules, vivado_project_class=vivado_project_class)
 
     @property
     def compile_order_file(self) -> Path:
@@ -81,9 +77,9 @@ class VivadoIpCores:
         """
         print(f"Creating IP core project in {self.project_directory}")
         delete(self.project_directory)
-        success = self._vivado_project.create(self.project_directory)
 
-        assert success, "Failed to create Vivado IP core project"
+        if not self._vivado_project.create(self.project_directory):
+            raise RuntimeError("Failed to create Vivado IP core project")
 
         self._save_hash()
 
@@ -107,7 +103,7 @@ class VivadoIpCores:
 
         return False
 
-    def _setup(self, modules: "ModuleList", vivado_project_class: type["VivadoProject"]) -> None:
+    def _setup(self, modules: ModuleList, vivado_project_class: type[VivadoIpCoreProject]) -> None:
         self._vivado_project = vivado_project_class(
             name=self.project_name, modules=modules, part=self._part_name
         )
@@ -120,13 +116,13 @@ class VivadoIpCores:
         self._hash = self._calculate_hash(ip_core_files)
 
     @staticmethod
-    def _calculate_hash(ip_core_files: list["IpCoreFile"]) -> str:
+    def _calculate_hash(ip_core_files: list[IpCoreFile]) -> str:
         """
         A string with hashes of the different IP core files.
         """
         data = ""
 
-        def sort_by_file_name(ip_core_file: "IpCoreFile") -> str:
+        def sort_by_file_name(ip_core_file: IpCoreFile) -> str:
             return ip_core_file.path.name
 
         for ip_core_file in sorted(ip_core_files, key=sort_by_file_name):
@@ -136,8 +132,10 @@ class VivadoIpCores:
                 data += json.dumps(ip_core_file.variables, sort_keys=True)
                 data += "\n"
 
-            with open(ip_core_file.path, "rb") as file_handle:
-                ip_hash = hashlib.md5()
+            with ip_core_file.path.open("rb") as file_handle:
+                # Is considered insecure, but we don't need a cryptographically secure hash here.
+                # Just something that is fast and unique.
+                ip_hash = hashlib.md5()  # noqa: S324
                 ip_hash.update(file_handle.read())
                 data += f"{ip_hash.hexdigest()}\n"
 

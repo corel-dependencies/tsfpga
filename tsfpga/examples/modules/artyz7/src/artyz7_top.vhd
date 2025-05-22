@@ -21,6 +21,9 @@ use common.common_pkg.all;
 
 library ddr_buffer;
 
+library mmcm_wrapper;
+use mmcm_wrapper.mmcm_wrapper_pkg.all;
+
 use work.artyz7_top_pkg.all;
 use work.artyz7_register_record_pkg.all;
 use work.block_design_pkg.all;
@@ -163,7 +166,7 @@ begin
       );
 
     ------------------------------------------------------------------------------
-    resync_ext_artyz7_reg_file_inst : entity work.artyz7_reg_file
+    resync_ext_artyz7_register_file_axi_lite_inst : entity work.artyz7_register_file_axi_lite
       port map (
         clk => ext_clk,
         --
@@ -176,7 +179,7 @@ begin
 
 
     ------------------------------------------------------------------------------
-    resync_pl_artyz7_reg_file_inst : entity work.artyz7_reg_file
+    resync_pl_artyz7_register_file_axi_lite_inst : entity work.artyz7_register_file_axi_lite
       port map (
         clk => pl_clk,
         --
@@ -189,7 +192,7 @@ begin
 
 
     ------------------------------------------------------------------------------
-    resync_pl_div4_artyz7_reg_file_inst : entity work.artyz7_reg_file
+    resync_pl_div4_artyz7_register_file_axi_lite_inst : entity work.artyz7_register_file_axi_lite
       port map (
         clk => pl_clk_div4,
         --
@@ -220,36 +223,45 @@ begin
 
 
   ------------------------------------------------------------------------------
-  block_design : block
-  begin
-
-    ------------------------------------------------------------------------------
-    block_design_inst : entity work.block_design_wrapper
-      port map (
-        m_gp0_m2s => m_gp0_m2s,
-        m_gp0_s2m => m_gp0_s2m,
-        --
-        s_hp0_m2s => s_hp0_m2s,
-        s_hp0_s2m => s_hp0_s2m,
-        --
-        pl_clk => pl_clk,
-        --
-        ddr => ddr,
-        fixed_io => fixed_io
-      );
-
-  end block;
+  block_design_inst : entity work.block_design_wrapper
+    port map (
+      pl_clk => pl_clk,
+      --
+      m_gp0_m2s => m_gp0_m2s,
+      m_gp0_s2m => m_gp0_s2m,
+      --
+      s_hp0_m2s => s_hp0_m2s,
+      s_hp0_s2m => s_hp0_s2m,
+      --
+      ddr => ddr,
+      fixed_io => fixed_io
+    );
 
 
   ------------------------------------------------------------------------------
-  mmcm_wrapper_inst : entity work.mmcm_wrapper
-    generic map (
-      clk_frequency_hz => pl_clk_frequency_hz
-    )
-    port map (
-      clk => pl_clk,
-      clk_div4 => pl_clk_div4
+  mmcm_block : block
+    constant parameters : mmcm_parameters_t := (
+      input_frequency_hz => pl_clk_frequency_hz,
+      -- Parameterization and instantiation from AMD Vivado clocking wizard IP with
+      -- settings 100 MHz -> 25 MHz.
+      multiply => 9.125,
+      divide => 1,
+      output_divide => (0=>36.5, others=>mmcm_output_divide_disabled),
+      output_phase_shift_degrees => (others => 0.0)
     );
+  begin
+
+    ------------------------------------------------------------------------------
+    mmcm_wrapper_inst : entity mmcm_wrapper.mmcm_wrapper
+      generic map (
+        parameters => parameters
+      )
+      port map (
+        input_clk => pl_clk,
+        result0_clk => pl_clk_div4
+      );
+
+  end block;
 
 
   ------------------------------------------------------------------------------

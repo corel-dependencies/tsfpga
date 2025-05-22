@@ -6,31 +6,40 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Any, Iterator, Optional, Union
+from typing import TYPE_CHECKING
 
-# First party libraries
 from tsfpga.system_utils import file_is_in_directory
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
-def get_git_commit(directory: Path) -> str:
+    from git.objects.tree import Tree
+
+
+def get_git_commit(directory: Path, use_rst_annotation: bool = False) -> str:
     """
     Get a string describing the current git commit.
     E.g. ``"abcdef0123"`` or ``"12345678 (local changes present)"``.
 
     Arguments:
         directory: The directory where git commands will be run.
+        use_rst_annotation: Use reStructuredText literal annotation for the SHA value.
 
     Return:
         Git commit information.
     """
-    git_commit = get_git_sha(directory=directory)
-    if git_local_changes_present(directory=directory):
-        git_commit += " (local changes present)"
+    annotation = "``" if use_rst_annotation else ""
+    git_sha = get_git_sha(directory=directory)
+    result = f"{annotation}{git_sha}{annotation}"
 
-    return git_commit
+    if git_local_changes_present(directory=directory):
+        result += " (local changes present)"
+
+    return result
 
 
 def get_git_sha(directory: Path) -> str:
@@ -44,23 +53,20 @@ def get_git_sha(directory: Path) -> str:
         The SHA.
     """
     # Generally, eight to ten characters are more than enough to be unique within a project.
-    # The linux kernel, one of the largest projects, needs 11.
+    # The linux kernel, one of the largest projects, needs 12.
     # https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection#Short-SHA-1
-    sha_length = 16
+    sha_length = 12
 
     if "GIT_COMMIT" in os.environ:
         return os.environ["GIT_COMMIT"][0:sha_length]
 
     # Import fails if "git" executable is not available, hence it can not be on top level.
     # This function should only be called if git is available.
-    # pylint: disable=import-outside-toplevel
-    # Third party libraries
+
     from git.repo import Repo
 
     repo = Repo(directory, search_parent_directories=True)
-    git_sha = repo.head.commit.hexsha[0:sha_length]
-
-    return git_sha
+    return repo.head.commit.hexsha[0:sha_length]
 
 
 def git_local_changes_present(directory: Path) -> bool:
@@ -75,8 +81,7 @@ def git_local_changes_present(directory: Path) -> bool:
     """
     # Import fails if "git" executable is not available, hence it can not be on top level.
     # This function should only be called if git is available.
-    # pylint: disable=import-outside-toplevel
-    # Third party libraries
+
     from git.repo import Repo
 
     repo = Repo(directory, search_parent_directories=True)
@@ -89,8 +94,6 @@ def git_commands_are_available(directory: Path) -> bool:
     True if "git" command executable is available, and ``directory`` is in a valid git repo.
     """
     try:
-        # pylint: disable=import-outside-toplevel
-        # Third party libraries
         from git import InvalidGitRepositoryError
         from git.repo import Repo
     except ImportError:
@@ -106,9 +109,9 @@ def git_commands_are_available(directory: Path) -> bool:
 
 def find_git_files(
     directory: Path,
-    exclude_directories: Optional[list[Path]] = None,
-    file_endings_include: Optional[Union[str, tuple[str]]] = None,
-    file_endings_avoid: Optional[Union[str, tuple[str]]] = None,
+    exclude_directories: list[Path] | None = None,
+    file_endings_include: str | tuple[str] | None = None,
+    file_endings_avoid: str | tuple[str] | None = None,
 ) -> Iterator[Path]:
     """
     Find files that are checked in to git.
@@ -124,8 +127,7 @@ def find_git_files(
     """
     # Import fails if "git" executable is not available, hence it can not be on top level.
     # This function should only be called if git is available.
-    # pylint: disable=import-outside-toplevel
-    # Third party libraries
+
     from git.repo import Repo
 
     exclude_directories = (
@@ -134,7 +136,7 @@ def find_git_files(
         else [exclude_directory.resolve() for exclude_directory in exclude_directories]
     )
 
-    def list_paths(root_tree: Any, path: Path) -> Iterator[Path]:
+    def list_paths(root_tree: Tree, path: Path) -> Iterator[Path]:
         for blob in root_tree.blobs:
             yield path / blob.name
         for tree in root_tree.trees:
@@ -143,7 +145,7 @@ def find_git_files(
     repo = Repo(directory, search_parent_directories=True)
     repo_root = Path(repo.working_dir).resolve()
 
-    for file_path in list_paths(repo.tree(), repo_root):
+    for file_path in list_paths(root_tree=repo.tree(), path=repo_root):
         if file_endings_include is not None and not file_path.name.endswith(file_endings_include):
             continue
 

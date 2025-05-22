@@ -6,7 +6,6 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
 import re
 from collections import OrderedDict
 
@@ -23,7 +22,7 @@ class HierarchicalUtilizationParser:
         for the specified run.
 
         Arguments:
-            report (str): A string containing the entire Vivado hierarchical utilization report.
+            report: A string containing the entire Vivado hierarchical utilization report.
         """
         lines = report.split("\n")
         for idx, line in enumerate(lines):

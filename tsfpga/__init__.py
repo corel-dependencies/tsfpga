@@ -6,10 +6,8 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
 from pathlib import Path
 
-# Local folder libraries
 from .about import get_short_slogan
 
 THIS_DIR = Path(__file__).parent
@@ -26,5 +24,7 @@ TSFPGA_EXAMPLE_MODULES = TSFPGA_EXAMPLES / "modules"
 # Default encoding when opening files
 DEFAULT_FILE_ENCODING = "utf-8"
 
-__version__ = "12.3.7-dev"
-__doc__ = get_short_slogan()  # pylint: disable=redefined-builtin
+__version__ = "13.2.4-dev"
+
+# We have the slogan in one place only, instead of repeating it here in a proper docstring.
+__doc__ = get_short_slogan()

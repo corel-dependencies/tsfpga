@@ -6,20 +6,21 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
+from __future__ import annotations
+
 import platform
 import zipfile
 from abc import ABC, abstractmethod
-from pathlib import Path
 from shutil import make_archive
-from typing import Optional
+from typing import TYPE_CHECKING
 
-# First party libraries
 from tsfpga.system_utils import create_file, delete
 from tsfpga.vivado.common import get_vivado_version
 
-# Local folder libraries
 from .common import get_vivado_path
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class VivadoSimlibCommon(ABC):
@@ -39,9 +40,9 @@ class VivadoSimlibCommon(ABC):
     # VUnit project.
     library_names: list[str]
 
-    def __init__(self, vivado_path: Optional[Path], output_path: Path) -> None:
+    def __init__(self, vivado_path: Path | None, output_path: Path) -> None:
         """
-        Call from subclass. Please do not instantiate this class directly.
+        Call from subclass. Do not instantiate this class directly.
         """
         self._vivado_path = get_vivado_path(vivado_path)
         self._libraries_path = (self._vivado_path.parent.parent / "data" / "vhdl" / "src").resolve()
@@ -76,17 +77,16 @@ class VivadoSimlibCommon(ABC):
         Return:
             True if compiled simlib is not available. False otherwise.
         """
-        if self._done_token.exists():
-            return False
-
-        return True
+        return not self._done_token.exists()
 
     def compile(self) -> None:
         """
         Compile simlib.
         """
-        # Probably does not exists, but try to delete just in case.
-        delete(self._done_token)
+        # Delete any existing artifacts, which might be fully or partially compiled.
+        # This also deletes the "done" token file if it exists.
+        # Specifically GHDL compilation fails if there are existing compiled artifacts
+        delete(self.output_path)
 
         print(f"Compiling Vivado simlib from {self._libraries_path} into {self.output_path}...")
         self._compile()
@@ -130,9 +130,7 @@ class VivadoSimlibCommon(ABC):
             Path to the archive.
         """
         make_archive(str(self.output_path), "zip", self.output_path)
-        archive = self.output_path.parent / (self.output_path.name + ".zip")
-
-        return archive
+        return self.output_path.parent / (self.output_path.name + ".zip")
 
     def from_archive(self, archive: Path) -> None:
         """

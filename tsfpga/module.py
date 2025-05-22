@@ -6,12 +6,11 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
-import random
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Union
+from __future__ import annotations
 
-# Third party libraries
+import random
+from typing import TYPE_CHECKING, Any, Callable
+
 from hdl_registers.generator.vhdl.axi_lite.wrapper import VhdlAxiLiteWrapperGenerator
 from hdl_registers.generator.vhdl.record_package import VhdlRecordPackageGenerator
 from hdl_registers.generator.vhdl.register_package import VhdlRegisterPackageGenerator
@@ -25,10 +24,7 @@ from hdl_registers.generator.vhdl.simulation.wait_until_package import (
     VhdlSimulationWaitUntilPackageGenerator,
 )
 from hdl_registers.parser.toml import from_toml
-from hdl_registers.register import Register
-from hdl_registers.register_list import RegisterList
 
-# First party libraries
 from tsfpga.constraint import Constraint
 from tsfpga.hdl_file import HdlFile
 from tsfpga.ip_core_file import IpCoreFile
@@ -36,7 +32,15 @@ from tsfpga.module_list import ModuleList
 from tsfpga.system_utils import load_python_module
 
 if TYPE_CHECKING:
-    # Local folder libraries
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from hdl_registers.register import Register
+    from hdl_registers.register_list import RegisterList
+    from vunit.ui import VUnit
+    from vunit.ui.test import Test
+    from vunit.ui.testbench import TestBench
+
     from .vivado.project import VivadoProject
 
 
@@ -59,34 +63,27 @@ class BaseModule:
     create_simulation_wait_until_package = True
 
     def __init__(
-        self,
-        path: Path,
-        library_name: str,
-        default_registers: Optional[list[Register]] = None,
-        **kwargs: Any,
-    ):
+        self, path: Path, library_name: str, default_registers: list[Register] | None = None
+    ) -> None:
         """
         Arguments:
             path: Path to the module folder.
             library_name: VHDL library name.
             default_registers: Default registers.
-            kwargs: Further parameters sent along to ``super().__init__``.
         """
         self.path = path.resolve()
         self.name = path.name
         self.library_name = library_name
 
         self._default_registers = default_registers
-        self._registers: Optional[RegisterList] = None
-
-        super().__init__(**kwargs)
+        self._registers: RegisterList | None = None
 
     @staticmethod
     def _get_file_list(
         folders: list[Path],
-        file_endings: Union[str, tuple[str, ...]],
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
+        file_endings: str | tuple[str, ...],
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
     ) -> list[Path]:
         """
         Returns a list of files given a list of folders.
@@ -116,11 +113,11 @@ class BaseModule:
 
         return files
 
-    def _get_hdl_file_list(  # pylint: disable=too-many-arguments
+    def _get_hdl_file_list(
         self,
         folders: list[Path],
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
         include_vhdl_files: bool = True,
         include_verilog_files: bool = True,
         include_systemverilog_files: bool = True,
@@ -128,7 +125,7 @@ class BaseModule:
         """
         Return a list of HDL file objects.
         """
-        file_endings: tuple[str, ...] = tuple()
+        file_endings: tuple[str, ...] = ()
         if include_vhdl_files:
             file_endings += HdlFile.file_endings_mapping[HdlFile.Type.VHDL]
         if include_verilog_files:
@@ -156,7 +153,7 @@ class BaseModule:
         return self.path / f"regs_{self.name}.toml"
 
     @property
-    def registers(self) -> Optional[RegisterList]:
+    def registers(self) -> RegisterList | None:
         """
         Get the registers for this module.
         Will be ``None`` if the module doesn't have any registers.
@@ -177,7 +174,7 @@ class BaseModule:
 
     def registers_hook(self) -> None:
         """
-        This function will be called directly after creating this module's registers from
+        Will be called directly after creating this module's registers from
         the TOML definition file.
         If the TOML file does not exist this hook will still be called, but the module's registers
         will be ``None``.
@@ -292,14 +289,14 @@ class BaseModule:
             self.path / "rtl" / "tb",
         ]
 
-    def get_synthesis_files(  # pylint: disable=unused-argument
+    def get_synthesis_files(
         self,
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
         include_vhdl_files: bool = True,
         include_verilog_files: bool = True,
         include_systemverilog_files: bool = True,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401, ARG002
     ) -> list[HdlFile]:
         """
         Get a list of files that shall be included in a synthesis project.
@@ -337,15 +334,15 @@ class BaseModule:
             include_systemverilog_files=include_systemverilog_files,
         )
 
-    def get_simulation_files(  # pylint: disable=too-many-arguments
+    def get_simulation_files(
         self,
         include_tests: bool = True,
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
         include_vhdl_files: bool = True,
         include_verilog_files: bool = True,
         include_systemverilog_files: bool = True,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> list[HdlFile]:
         """
         See :meth:`.get_synthesis_files` for instructions on how to use ``files_include``
@@ -396,14 +393,14 @@ class BaseModule:
 
         return synthesis_files + test_files
 
-    def get_documentation_files(  # pylint: disable=unused-argument
+    def get_documentation_files(
         self,
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
         include_vhdl_files: bool = True,
         include_verilog_files: bool = True,
         include_systemverilog_files: bool = True,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401, ARG002
     ) -> list[HdlFile]:
         """
         Get a list of files that shall be included in a documentation build.
@@ -421,6 +418,8 @@ class BaseModule:
                 file endings.
             include_systemverilog_files: Optionally disable inclusion of files with SystemVerilog
                 file endings.
+            kwargs: Further parameters that can be sent by documentation build flow to control what
+                files are included.
 
         Return:
             Files that should be included in documentation.
@@ -444,12 +443,11 @@ class BaseModule:
             include_systemverilog_files=include_systemverilog_files,
         )
 
-    # pylint: disable=unused-argument
     def get_ip_core_files(
         self,
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
-        **kwargs: Any,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
+        **kwargs: Any,  # noqa: ANN401, ARG002
     ) -> list[IpCoreFile]:
         """
         Get IP cores for this module.
@@ -482,12 +480,11 @@ class BaseModule:
             )
         ]
 
-    # pylint: disable=unused-argument
     def get_scoped_constraints(
         self,
-        files_include: Optional[set[Path]] = None,
-        files_avoid: Optional[set[Path]] = None,
-        **kwargs: Any,
+        files_include: set[Path] | None = None,
+        files_avoid: set[Path] | None = None,
+        **kwargs: Any,  # noqa: ANN401, ARG002
     ) -> list[Constraint]:
         """
         Constraints that shall be applied to a certain entity within this module.
@@ -529,7 +526,11 @@ class BaseModule:
 
         return constraints
 
-    def setup_vunit(self, vunit_proj: Any, **kwargs: Any) -> None:
+    def setup_vunit(
+        self,
+        vunit_proj: VUnit,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
         """
         Setup local configuration of this module's test benches.
 
@@ -545,10 +546,12 @@ class BaseModule:
         """
 
     def pre_build(
-        self, project: "VivadoProject", **kwargs: Any
-    ) -> bool:  # pylint: disable=unused-argument
+        self,
+        project: VivadoProject,  # noqa: ARG002
+        **kwargs: Any,  # noqa: ANN401, ARG002
+    ) -> bool:
         """
-        This method hook will be called before an FPGA build is run. A typical use case for this
+        Will be called before an FPGA build is run. A typical use case for this
         mechanism is to set a register constant or default value based on the generics that
         are passed to the project. Could also be used to, e.g., generate BRAM init files
         based on project information, etc.
@@ -568,7 +571,7 @@ class BaseModule:
         """
         return True
 
-    def get_build_projects(self) -> list["VivadoProject"]:
+    def get_build_projects(self) -> list[VivadoProject]:
         """
         Get FPGA build projects defined by this module.
 
@@ -582,9 +585,7 @@ class BaseModule:
         return []
 
     @staticmethod
-    def test_case_name(
-        name: Optional[str] = None, generics: Optional[dict[str, Any]] = None
-    ) -> str:
+    def test_case_name(name: str | None = None, generics: dict[str, Any] | None = None) -> str:
         """
         Construct a string suitable for naming test cases.
 
@@ -595,51 +596,50 @@ class BaseModule:
         Return:
             For example ``MyBaseName.GenericA_ValueA.GenericB_ValueB``.
         """
-        if name:
-            test_case_name = name
-        else:
-            test_case_name = ""
+        test_case_name = name if name else ""
 
         if generics:
             generics_string = ".".join([f"{key}_{value}" for key, value in generics.items()])
 
-            if test_case_name:
-                test_case_name = f"{name}.{generics_string}"
-            else:
-                test_case_name = generics_string
+            test_case_name = f"{name}.{generics_string}" if test_case_name else generics_string
 
         return test_case_name
 
-    def add_vunit_config(  # pylint: disable=too-many-arguments
+    def add_vunit_config(  # noqa: PLR0913
         self,
-        test: Any,
-        name: Optional[str] = None,
-        generics: Optional[dict[str, Any]] = None,
-        set_random_seed: Optional[Union[bool, int]] = False,
-        pre_config: Optional[Callable[..., bool]] = None,
-        post_check: Optional[Callable[..., bool]] = None,
+        test: Test | TestBench,
+        name: str | None = None,
+        generics: dict[str, Any] | None = None,
+        set_random_seed: bool | int | None = False,
+        count: int = 1,
+        pre_config: Callable[..., bool] | None = None,
+        post_check: Callable[..., bool] | None = None,
     ) -> None:
         """
-        Add config for VUnit test case.
-        Wrapper that sets a suitable name and can set a random seed generic.
+        Convenient wrapper to add VUnit test configuration(s).
 
         Arguments:
-            test: VUnit test object. Can be testbench or test case.
-            name: Optional designated name for this config. Will be used to form the name of
-                the config together with the ``generics`` value.
-            generics: Generic values that will be applied to the testbench entity. The values
-                will also be used to form the name of the config.
+            test: VUnit test or testbench object.
+            name: Optional designated name for this config.
+                Will be used to form the name of the config together with the ``generics`` value.
+            generics: Generic values that will be applied to the testbench entity.
+                The values will also be used to form the name of the config.
             set_random_seed: Controls setting of the ``seed`` generic:
 
                 * When this argument is not assigned, or assigned ``False``, the generic will not
                   be set.
                 * When set to boolean ``True``, a random natural (non-negative integer)
                   generic value will be set.
-                * When set to an integer value, that value will be set for the generic.
+                * When set to an integer value, that specific value will be set for the generic.
                   This is useful to get a static test case name for waveform inspection.
 
                 If the generic is to be set it must exist in the testbench entity, and should have
                 VHDL type ``natural``.
+
+                .. deprecated:: 13.2.2
+                    Use VUnit mechanism for random seed instead rather than this clunky variant.
+            count: Number of times to setup the same test configuration.
+                Is useful for testbenches that randomize their behavior based on the VUnit seed.
             pre_config: Function to be run before the test.
                 See `VUnit documentation <https://vunit.github.io/py/ui.html>`_ for details.
             post_check: Function to be run after the test.
@@ -647,35 +647,51 @@ class BaseModule:
         """
         generics = {} if generics is None else generics
 
+        if set_random_seed != False:  # noqa: E712
+            print(
+                f"DEPRECATED: {self.__class__.__name__}.add_vunit_config() argument "
+                "'set_random_seed' is deprecated and will be removed."
+            )
+
         # Note that "bool" is a sub-class of "int" in python, so isinstance(set_random_seed, int)
         # returns True if it is an integer or a bool.
         if isinstance(set_random_seed, bool):
             if set_random_seed:
                 # Use the maximum range for a natural in VHDL-2008
-                generics["seed"] = random.randint(0, 2**31 - 1)
+                # Does not need to be cryptographically secure.
+                generics["seed"] = random.randint(0, 2**31 - 1)  # noqa: S311
 
         elif isinstance(set_random_seed, int):
             generics["seed"] = set_random_seed
 
-        name = self.test_case_name(name=name, generics=generics)
-        # VUnit does not allow an empty name, which can happen if both 'name' and 'generics' to
-        # this method are None, but the user sets for example a 'pre_config'.
-        # Avoid this error mode by setting a default name when it happens.
-        name = "test" if name == "" else name
+        base_name = self.test_case_name(name=name, generics=generics)
 
-        test.add_config(name=name, generics=generics, pre_config=pre_config, post_check=post_check)
+        for count_index in range(count):
+            if base_name == "":
+                # VUnit does not allow an empty name, which can happen if both 'name' and 'generics'
+                # to this method are 'None', but the user sets for example a 'pre_config'.
+                # Avoid this error mode by setting the count index, even if count is 1.
+                name = str(count_index)
+            elif count > 1:
+                name = f"{base_name}.{count_index}"
+            else:
+                name = base_name
+
+            test.add_config(
+                name=name, generics=generics, pre_config=pre_config, post_check=post_check
+            )
 
     def __str__(self) -> str:
         return f"{self.name}:{self.path}"
 
 
 def get_modules(
-    modules_folder: Optional[Path] = None,
-    modules_folders: Optional[list[Path]] = None,
-    names_include: Optional[set[str]] = None,
-    names_avoid: Optional[set[str]] = None,
+    modules_folder: Path | None = None,
+    modules_folders: list[Path] | None = None,
+    names_include: set[str] | None = None,
+    names_avoid: set[str] | None = None,
     library_name_has_lib_suffix: bool = False,
-    default_registers: Optional[list[Register]] = None,
+    default_registers: list[Register] | None = None,
 ) -> ModuleList:
     """
     Get a list of module objects (:class:`BaseModule` or subclasses thereof) based on the source
@@ -725,10 +741,10 @@ def get_modules(
 
 def get_module(
     name: str,
-    modules_folder: Optional[Path] = None,
-    modules_folders: Optional[list[Path]] = None,
+    modules_folder: Path | None = None,
+    modules_folders: list[Path] | None = None,
     library_name_has_lib_suffix: bool = False,
-    default_registers: Optional[list[Register]] = None,
+    default_registers: list[Register] | None = None,
 ) -> BaseModule:
     """
     Get a single module object, for a module found in one of the specified source code folders.
@@ -774,7 +790,7 @@ def _get_module_object(
     path: Path,
     name: str,
     library_name_has_lib_suffix: bool,
-    default_registers: Optional[list["Register"]],
+    default_registers: list[Register] | None,
 ) -> BaseModule:
     module_file = path / f"module_{name}.py"
     library_name = f"{name}_lib" if library_name_has_lib_suffix else name

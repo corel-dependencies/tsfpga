@@ -6,7 +6,6 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# First party libraries
 from tsfpga import REPO_ROOT, TSFPGA_DOC, TSFPGA_EXAMPLE_MODULES, TSFPGA_TCL
 from tsfpga.git_utils import find_git_files
 from tsfpga.test.lint.file_format_lint import (
@@ -31,7 +30,7 @@ def test_all_checked_in_files_are_properly_encoded():
 
 
 def test_all_checked_in_files_end_with_newline():
-    """
+    r"""
     All checked in non-empty files should end with a UNIX style line break (\n).
     Otherwise UNIX doesn't consider them actual text files.
     """
@@ -53,7 +52,7 @@ def test_no_checked_in_files_contain_tabs():
 
 
 def test_no_checked_in_files_contain_carriage_return():
-    """
+    r"""
     All checked in files should use UNIX style line breaks (\n not \r\n).
     Some Linux editors and tools will display or interpret the \r as something other than a line
     break.
@@ -72,10 +71,7 @@ def test_no_checked_in_files_contain_trailing_whitespace():
     test_ok = True
     excludes = [
         # From Vivado, not modified by us
-        TSFPGA_EXAMPLE_MODULES
-        / "artyz7"
-        / "tcl"
-        / "block_design.tcl",
+        TSFPGA_EXAMPLE_MODULES / "artyz7" / "tcl" / "block_design.tcl",
     ]
     for file in files_to_test(exclude_directories=excludes):
         test_ok &= check_file_for_trailing_whitespace(file)
@@ -98,6 +94,13 @@ def test_no_checked_in_files_have_too_long_lines():
         TSFPGA_TCL / "check_timing.tcl",
         # From Vivado, not modified by us
         TSFPGA_EXAMPLE_MODULES / "artyz7" / "tcl" / "block_design.tcl",
+        # Long link.
+        TSFPGA_EXAMPLE_MODULES / "io_constraints" / "src" / "io_constraints_top.vhd",
+        # Impossible to break TCL syntax, and long link.
+        TSFPGA_EXAMPLE_MODULES / "io_constraints" / "tcl" / "input_source_synchronous.tcl",
+        TSFPGA_EXAMPLE_MODULES / "io_constraints" / "tcl" / "input_system_synchronous.tcl",
+        TSFPGA_EXAMPLE_MODULES / "io_constraints" / "tcl" / "input_sink_synchronous.tcl",
+        TSFPGA_EXAMPLE_MODULES / "io_constraints" / "tcl" / "output_source_synchronous.tcl",
     ]
     for file_path in files_to_test(exclude_directories=excludes):
         test_ok &= check_file_for_line_length(file_path=file_path)

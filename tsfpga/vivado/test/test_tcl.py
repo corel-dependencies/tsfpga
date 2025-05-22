@@ -6,21 +6,17 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
 from collections import OrderedDict
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# Third party libraries
 import pytest
 
-# First party libraries
 from tsfpga.build_step_tcl_hook import BuildStepTclHook
+from tsfpga.constraint import Constraint
 from tsfpga.ip_core_file import IpCoreFile
 from tsfpga.module import BaseModule, get_modules
 from tsfpga.system_utils import create_file
-
-# pylint: disable=unused-import
 from tsfpga.test.test_utils import file_contains_string
 from tsfpga.vivado.common import to_tcl_path
 from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
@@ -146,7 +142,7 @@ def test_runtime_generics():
         output_path=Path(),
         num_threads=0,
         run_index=0,
-        generics=dict(dummy=True),
+        generics={"dummy": True},
     )
     expected = '\nset_property "generic" {dummy=1\'b1} [current_fileset]\n'
     assert expected in tcl
@@ -188,7 +184,7 @@ def test_module_getters_are_called_with_correct_arguments():
         part="",
         top="",
         run_index=1,
-        other_arguments=dict(apa=123, hest=456),
+        other_arguments={"apa": 123, "hest": 456},
     )
 
     modules[0].get_synthesis_files.assert_called_once_with(apa=123, hest=456)
@@ -198,7 +194,7 @@ def test_module_getters_are_called_with_correct_arguments():
 
 @pytest.fixture
 def vivado_tcl_test(tmp_path):
-    class VivadoTclTest:  # pylint: disable=too-many-instance-attributes
+    class VivadoTclTest:
         def __init__(self):
             self.modules_folder = tmp_path / "modules"
 
@@ -231,10 +227,6 @@ def vivado_tcl_test(tmp_path):
     return VivadoTclTest()
 
 
-# False positive for pytest fixtures
-# pylint: disable=redefined-outer-name
-
-
 def test_source_file_list_is_correctly_formatted(vivado_tcl_test):
     tcl = vivado_tcl_test.tcl.create(
         project_folder=Path(), modules=vivado_tcl_test.modules, part="", top="", run_index=1
@@ -259,19 +251,51 @@ def test_only_synthesis_files_added_to_create_project_tcl(vivado_tcl_test):
     tcl = vivado_tcl_test.tcl.create(
         project_folder=Path(), modules=vivado_tcl_test.modules, part="", top="", run_index=1
     )
-    assert vivado_tcl_test.a_vhd in tcl and vivado_tcl_test.c_v in tcl
-    assert vivado_tcl_test.tb_a_vhd not in tcl and "tb_a.vhd" not in tcl
+    assert vivado_tcl_test.a_vhd in tcl
+    assert vivado_tcl_test.c_v in tcl
+    assert vivado_tcl_test.tb_a_vhd not in tcl
+    assert "tb_a.vhd" not in tcl
 
 
 def test_constraints(vivado_tcl_test):
+    constraint_folder = vivado_tcl_test.modules[0].path.parent.resolve() / "z" / "tcl"
+
     tcl = vivado_tcl_test.tcl.create(
-        project_folder=Path(), modules=vivado_tcl_test.modules, part="part", top="", run_index=1
+        project_folder=Path(),
+        modules=vivado_tcl_test.modules,
+        part="part",
+        top="",
+        run_index=1,
+        constraints=[
+            Constraint(constraint_folder / "x.xdc"),
+            Constraint(constraint_folder / "y.tcl", used_in_synthesis=False),
+            Constraint(
+                constraint_folder / "z.xdc", used_in_implementation=False, processing_order="early"
+            ),
+        ],
     )
 
-    expected = f'\nread_xdc -ref "a" {{{vivado_tcl_test.a_xdc}}}\n'
-    assert expected in tcl
-    expected = f'\nread_xdc -ref "b" -unmanaged {{{vivado_tcl_test.b_tcl}}}\n'
-    assert expected in tcl
+    # Scoped constraints from the modules.
+    assert f'\nread_xdc -ref "a" {{{vivado_tcl_test.a_xdc}}}\n' in tcl
+    assert f'\nread_xdc -ref "b" -unmanaged {{{vivado_tcl_test.b_tcl}}}\n' in tcl
+
+    # Regular constraints
+    constraint_file = to_tcl_path(constraint_folder / "x.xdc")
+    assert f"\nread_xdc {{{constraint_file}}}\n" in tcl
+    assert f'"PROCESSING_ORDER" "NORMAL" [get_files {{{constraint_file}}}' in tcl
+    assert f"false [get_files {{{constraint_file}}}" not in tcl
+
+    constraint_file = to_tcl_path(constraint_folder / "y.tcl")
+    assert f"\nread_xdc -unmanaged {{{constraint_file}}}\n" in tcl
+    assert f'"PROCESSING_ORDER" "NORMAL" [get_files {{{constraint_file}}}' in tcl
+    assert f'"USED_IN_SYNTHESIS" false [get_files {{{constraint_file}}}' in tcl
+    assert f'"USED_IN_IMPLEMENTATION" false [get_files {{{constraint_file}}}' not in tcl
+
+    constraint_file = to_tcl_path(constraint_folder / "z.xdc")
+    assert f"\nread_xdc {{{constraint_file}}}\n" in tcl
+    assert f'"PROCESSING_ORDER" "EARLY" [get_files {{{constraint_file}}}' in tcl
+    assert f'"USED_IN_SYNTHESIS" false [get_files {{{constraint_file}}}' not in tcl
+    assert f'"USED_IN_IMPLEMENTATION" false [get_files {{{constraint_file}}}' in tcl
 
 
 def test_ip_core_files(vivado_tcl_test):

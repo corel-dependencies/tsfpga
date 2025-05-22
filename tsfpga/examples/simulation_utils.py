@@ -6,26 +6,28 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
-# Standard libraries
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
-from shutil import which
-from typing import TYPE_CHECKING, Any, Optional, Type
+from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from tsfpga.vivado.simlib_common import VivadoSimlibCommon
-
-# Third party libraries
+import hdl_registers
 from vunit.ui import VUnit
 from vunit.vivado.vivado import add_from_compile_order_file, create_compile_order_file
 from vunit.vunit_cli import VUnitCLI
 
-# First party libraries
 import tsfpga
 import tsfpga.create_vhdl_ls_config
+from tsfpga.git_simulation_subset import GitSimulationSubset
 from tsfpga.module_list import ModuleList
+from tsfpga.vivado.common import get_vivado_path
 from tsfpga.vivado.ip_cores import VivadoIpCores
 from tsfpga.vivado.simlib import VivadoSimlib
+
+if TYPE_CHECKING:
+    from tsfpga.vivado.project import VivadoIpCoreProject
+    from tsfpga.vivado.simlib_common import VivadoSimlibCommon
 
 
 def get_arguments_cli(default_output_path: Path) -> VUnitCLI:
@@ -41,8 +43,8 @@ def get_arguments_cli(default_output_path: Path) -> VUnitCLI:
     # Print default values when doing --help
     cli.parser.formatter_class = argparse.ArgumentDefaultsHelpFormatter
 
-    # Set the supplied default value for VUnit output path. pylint: disable=protected-access
-    for action in cli.parser._actions:
+    # Set the supplied default value for VUnit output path.
+    for action in cli.parser._actions:  # noqa: SLF001
         if action.dest == "output_path":
             action.default = default_output_path / "vunit_out"
             break
@@ -74,7 +76,7 @@ def get_arguments_cli(default_output_path: Path) -> VUnitCLI:
     cli.parser.add_argument(
         "--vcs-minimal",
         action="store_true",
-        help="compile and run only a minimal set of tests based on Version Control System history",
+        help="run a minimal set of tests based on version control system (e.g. git) history",
     )
 
     cli.parser.add_argument(
@@ -115,19 +117,20 @@ class SimulationProject:
     def add_modules(
         self,
         modules: ModuleList,
-        modules_no_sim: Optional[ModuleList] = None,
+        modules_no_test: ModuleList | None = None,
         include_vhdl_files: bool = True,
         include_verilog_files: bool = True,
         include_systemverilog_files: bool = True,
-        **setup_vunit_kwargs: Any,
+        **setup_vunit_kwargs: Any,  # noqa: ANN401
     ) -> None:
         """
         Add module source files to the VUnit project.
 
         Arguments:
             modules: These modules will be included in the simulation project.
-            modules_no_sim: These modules will be included in the simulation project,
-                but their test files will not be added.
+            modules_no_test: Source and simulation files from these modules will be included in the
+                simulation project, but no testbenches.
+                Provide your dependency modules here, if you have any.
             include_vhdl_files: Optionally disable inclusion of VHDL files from
                 the modules.
             include_verilog_files: Optionally disable inclusion of Verilog files from
@@ -139,16 +142,16 @@ class SimulationProject:
                 Note that this is a "kwargs" style argument; any number of named arguments can
                 be sent.
         """
-        modules_no_sim = ModuleList() if modules_no_sim is None else modules_no_sim
+        modules_no_test = ModuleList() if modules_no_test is None else modules_no_test
 
         include_unisim = not self.args.vivado_skip
         include_ip_cores = self.has_commercial_simulator and not self.args.vivado_skip
 
-        for module in modules + modules_no_sim:
+        for module in modules + modules_no_test:
             vunit_library = self.vunit_proj.add_library(
                 library_name=module.library_name, allow_duplicate=True
             )
-            simulate_this_module = module not in modules_no_sim
+            simulate_this_module = module not in modules_no_test
 
             for hdl_file in module.get_simulation_files(
                 include_tests=simulate_this_module,
@@ -169,7 +172,7 @@ class SimulationProject:
                     **setup_vunit_kwargs,
                 )
 
-    def add_vivado_simlib(self) -> Optional["VivadoSimlibCommon"]:
+    def add_vivado_simlib(self) -> VivadoSimlibCommon | None:
         """
         Add Vivado simlib to the VUnit project, unless instructed not to by ``args``.
         Will compile simlib if necessary.
@@ -184,7 +187,7 @@ class SimulationProject:
             output_path=self.args.output_path_vivado, force_compile=self.args.simlib_compile
         )
 
-    def _add_simlib(self, output_path: Path, force_compile: bool) -> "VivadoSimlibCommon":
+    def _add_simlib(self, output_path: Path, force_compile: bool) -> VivadoSimlibCommon:
         """
         Add Vivado simlib to the VUnit project. Compile if needed.
 
@@ -218,8 +221,8 @@ class SimulationProject:
         self,
         modules: ModuleList,
         vivado_part_name: str = "xc7z020clg400-1",
-        vivado_ip_core_project_class: Optional[Type[Any]] = None,
-    ) -> Optional[Path]:
+        vivado_ip_core_project_class: type[VivadoIpCoreProject] | None = None,
+    ) -> Path | None:
         """
         Generate IP cores from the modules, unless instructed not to by ``args``.
         When running with a commercial simulator they will be added to the VUnit project.
@@ -264,7 +267,7 @@ class SimulationProject:
         output_path: Path,
         force_generate: bool,
         part_name: str,
-        vivado_project_class: Optional[Type[Any]] = None,
+        vivado_project_class: type[VivadoIpCoreProject] | None = None,
     ) -> tuple[Path, Path]:
         """
         Generate Vivado IP core files that are to be added to the VUnit project.
@@ -301,41 +304,135 @@ class SimulationProject:
         return vivado_ip_cores.compile_order_file, vivado_ip_cores.project_directory
 
 
+class NoVcsDiffTestsFound(Exception):  # noqa: N818
+    """
+    Raised by :meth:`.find_git_test_filter` when no tests are found due to no
+    VHDL-related git diff.
+    """
+
+
+def find_git_test_filter(
+    args: argparse.Namespace,
+    repo_root: Path,
+    modules: ModuleList,
+    modules_no_test: ModuleList | None = None,
+    reference_branch: str = "origin/main",
+    **setup_vunit_kwargs: Any,  # noqa: ANN401
+) -> argparse.Namespace:
+    """
+    Construct a VUnit test filter that will run all test cases that are affected by git changes.
+    The current git state is compared to a reference branch, and differences are derived.
+    See :class:`.GitSimulationSubset` for details.
+
+    Arguments:
+        args: Command line argument namespace.
+        repo_root: Path to the repository root.
+            Git commands will be run here.
+        modules: Will be passed on to :meth:`.SimulationProject.add_modules`.
+        modules_no_test: Will be passed on to :meth:`.SimulationProject.add_modules`.
+        reference_branch: The name of the reference branch that is used to collect a diff.
+        setup_vunit_kwargs : Will be passed on to :meth:`.SimulationProject.add_modules`.
+
+    Return:
+        An updated argument namespace from which a VUnit project can be created.
+    """
+    if args.test_patterns != "*":
+        raise ValueError(
+            "Can not specify a test pattern when using the --vcs-minimal flag."
+            f" Got {args.test_patterns}",
+        )
+
+    # Set up a dummy VUnit project that will be used for dependency scanning.
+    # We could use the "real" simulation project, which the user has no doubt created, but
+    # in the VUnit project there are two issues:
+    # 1. It is impossible to change the test filter after the project has been created.
+    # 2. We would have to access the _minimal private member.
+    # Hence we create a new project here.
+    # We add the 'modules_no_test' as well as simlib, not because we need them but to avoid
+    # excessive terminal printouts about missing files in dependency scanning.
+    simulation_project = SimulationProject(args=args)
+    simulation_project.add_modules(
+        args=args,
+        modules=modules,
+        modules_no_test=modules_no_test,
+        include_verilog_files=False,
+        include_systemverilog_files=False,
+        **setup_vunit_kwargs,
+    )
+    simulation_project.add_vivado_simlib()
+
+    testbenches_to_run = GitSimulationSubset(
+        repo_root=repo_root,
+        reference_branch=reference_branch,
+        vunit_proj=simulation_project.vunit_proj,
+        modules=modules,
+    ).find_subset()
+
+    if not testbenches_to_run:
+        raise NoVcsDiffTestsFound
+
+    # Override the test pattern argument to VUnit.
+    args.test_patterns = []
+    for testbench_file_name, library_name in testbenches_to_run:
+        args.test_patterns.append(f"{library_name}.{testbench_file_name}.*")
+
+    print(f"Running VUnit with test pattern {args.test_patterns}")
+
+    # Enable minimal compilation in VUnit to save time.
+    args.minimal = True
+
+    return args
+
+
 def create_vhdl_ls_configuration(
     output_path: Path,
-    temp_files_path: Path,
     modules: ModuleList,
-    ip_core_vivado_project_directory: Optional[Path] = None,
+    vunit_proj: VUnit,
+    ip_core_vivado_project_directory: Path | None = None,
 ) -> None:
     """
-    Create config for vhdl_ls (https://github.com/VHDL-LS/rust_hdl).
-    Granted this might no be the "correct" place for this functionality.
-    But since the call is somewhat quick (~10 ms), and simulate.py is run "often" it seems an
-    appropriate place in order to always have an up-to-date vhdl_ls config.
+    Create a configuration file (``vhdl_ls.toml``) for the rust_hdl VHDL Language Server
+    (https://github.com/VHDL-LS/rust_hdl).
+
+    The call is very quick (10-15 ms).
+    Running it from ``simulate.py``, a script that is run "often", might be a good idea
+    in order to always have an up-to-date vhdl_ls config.
 
     Arguments:
         output_path: Config file will be placed in this directory.
-        temp_files_path: Some temporary files will be stored in a folder within this directory.
-        modules: These modules will be added.
+        modules: All files from these modules will be added.
+        vunit_proj: All files in this VUnit project will be added.
+            This includes the files from VUnit itself, and any user files.
+
+            .. warning::
+                Using a VUnit project with location/check preprocessing enabled might be
+                dangerous, since it introduces the risk of editing a generated file.
         ip_core_vivado_project_directory: Vivado IP core files in this location will be added.
     """
-    # Create an empty VUnit project to add files from VUnit and OSVVM library.
-    # If we were to use the "real" VUnit project that we set up above instead, all the files would
-    # be in the "preprocessed" folder. Hence we use an "empty" VUnit project, and add all files
-    # via modules.
-    vunit_proj = VUnit.from_argv(argv=["--output-path", str(temp_files_path / "vhdl_ls_vunit_out")])
-    vunit_proj.add_vhdl_builtins()
-    vunit_proj.add_verification_components()
-    vunit_proj.add_random()
-    vunit_proj.add_osvvm()
+    # Add some files needed when doing hdl-registers development.
+    # But only if they currently exist in the file system, to avoid vhdl_ls warning about
+    # missing files.
+    hdl_register_repo_root = Path(hdl_registers.__file__).parent.parent
+    additional_files = [
+        (path / "*.vhd", "example")
+        for path in [
+            hdl_register_repo_root / "tests" / "functional" / "simulation" / "vhdl",
+            hdl_register_repo_root / "generated" / "vunit_out" / "generated_register",
+            hdl_register_repo_root / "doc" / "sphinx" / "rst" / "generator" / "example_counter",
+        ]
+        if path.exists()
+    ]
 
-    which_vivado = which("vivado")
-    vivado_location = None if which_vivado is None else Path(which_vivado)
+    try:
+        vivado_location = get_vivado_path()
+    except FileNotFoundError:
+        vivado_location = None
 
     tsfpga.create_vhdl_ls_config.create_configuration(
         output_path=output_path,
         modules=modules,
         vunit_proj=vunit_proj,
+        files=additional_files,
         vivado_location=vivado_location,
         ip_core_vivado_project_directory=ip_core_vivado_project_directory,
     )
